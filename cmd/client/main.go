@@ -18,7 +18,7 @@ func main() {
 		log.Fatal("could not establish connection: %w", err)
 	}
 
-	ch, err := connection.Channel()
+	publishCh, err := connection.Channel()
 	if err != nil {
 		log.Fatal("could not create channel: %w", err)
 	}
@@ -46,10 +46,21 @@ func main() {
 	err = pubsub.SubscribeJSON(
 		connection,
 		routing.ExchangePerilTopic,
-		routing.ArmyMovesPrefix+"."+username, //army_moves.<username>
+		routing.ArmyMovesPrefix+"."+username, //army_moves.<username>,
 		routing.ArmyMovesPrefix+".*",         //army_moves.*
 		pubsub.SimpleQueueTransient,
-		handlerMove(gameState))
+		handlerMove(gameState, publishCh))
+	if err != nil {
+		log.Fatal("could not declare and bind queue: %w", err)
+	}
+
+	err = pubsub.SubscribeJSON(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.WarRecognitionsPrefix,
+		routing.WarRecognitionsPrefix+".*",
+		pubsub.SimpleQueueDurable,
+		handlerWar(gameState))
 	if err != nil {
 		log.Fatal("could not declare and bind queue: %w", err)
 	}
@@ -74,7 +85,7 @@ func main() {
 				fmt.Printf("could not publish message: %v\n", err)
 			} else {
 				err = pubsub.PublishJSON(
-					ch,
+					publishCh,
 					routing.ExchangePerilTopic,
 					routing.ArmyMovesPrefix+"."+username,
 					move)
