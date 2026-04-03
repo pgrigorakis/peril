@@ -25,10 +25,13 @@ func main() {
 		log.Fatal("could not create channel: %w", err)
 	}
 
-	queueType := pubsub.SimpleQueueDurable
-	queueName := "game_logs"
-
-	_, _, err = pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, queueName, routing.GameLogSlug+".*", queueType)
+	err = pubsub.SubscribeGob(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.SimpleQueueDurable,
+		handlerLogs())
 	if err != nil {
 		log.Fatal("could not declare and bind queue: %w", err)
 	}

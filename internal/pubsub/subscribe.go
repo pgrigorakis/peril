@@ -1,8 +1,11 @@
 package pubsub
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -20,10 +23,47 @@ func SubscribeJSON[T any](
 	exchange,
 	queueName,
 	key string,
-	queueType SimpleQueueType, // an enum to represent "durable" or "transient"
+	queueType SimpleQueueType,
 	handler func(T) AckType,
 ) error {
-	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	return subscribe(
+		conn,
+		exchange,
+		queueName,
+		key,
+		queueType,
+		handler,
+		jsonUnmarshaller[T])
+}
+
+func SubscribeGob[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T) AckType,
+) error {
+	return subscribe(
+		conn,
+		exchange,
+		queueName,
+		key,
+		queueType,
+		handler,
+		gobUnmarshaller[T])
+}
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) AckType,
+	unmarshaller func([]byte) (T, error),
+) error {
+	ch, _, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
 		return fmt.Errorf("could not bind queue to exchange: %w", err)
 	}
@@ -35,9 +75,11 @@ func SubscribeJSON[T any](
 
 	go func() {
 		for msg := range deliveryCh {
-			var dat T
-			_ = json.Unmarshal(msg.Body, &dat)
-			ackType := handler(dat)
+			decodedMsg, err := unmarshaller(msg.Body)
+			if err != nil {
+				log.Printf("could not decode message: %v", err)
+			}
+			ackType := handler(decodedMsg)
 			switch ackType {
 			case Ack:
 				msg.Ack(false)
@@ -48,6 +90,27 @@ func SubscribeJSON[T any](
 			}
 		}
 	}()
-
 	return nil
+}
+
+func jsonUnmarshaller[T any](msg []byte) (T, error) {
+	var dat T
+	err := json.Unmarshal(msg, &dat)
+	if err != nil {
+		return dat, fmt.Errorf("error: %v", err)
+	}
+	return dat, err
+}
+
+func gobUnmarshaller[T any](msg []byte) (T, error) {
+	dat := bytes.NewBuffer(msg)
+	dec := gob.NewDecoder(dat)
+
+	var decodedMessage T
+
+	err := dec.Decode(&decodedMessage)
+	if err != nil {
+		return decodedMessage, fmt.Errorf("could not decode value: %v", err)
+	}
+	return decodedMessage, err
 }
