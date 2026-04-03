@@ -60,7 +60,7 @@ func main() {
 		routing.WarRecognitionsPrefix,
 		routing.WarRecognitionsPrefix+".*",
 		pubsub.SimpleQueueDurable,
-		handlerWar(gameState))
+		handlerWar(gameState, publishCh))
 	if err != nil {
 		log.Fatal("could not declare and bind queue: %w", err)
 	}
