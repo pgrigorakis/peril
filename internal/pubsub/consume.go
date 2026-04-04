@@ -18,6 +18,49 @@ const (
 	NackDiscard
 )
 
+type SimpleQueueType int
+
+const (
+	SimpleQueueDurable SimpleQueueType = iota
+	SimpleQueueTransient
+)
+
+func DeclareAndBind(
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+) (*amqp.Channel, amqp.Queue, error) {
+
+	subCh, err := conn.Channel()
+	if err != nil {
+		return nil, amqp.Queue{}, err
+	}
+
+	subQueue, err := subCh.QueueDeclare(
+		queueName,
+		queueType == SimpleQueueDurable,
+		queueType != SimpleQueueDurable,
+		queueType != SimpleQueueDurable,
+		false,
+		amqp.Table{
+			"x-dead-letter-exchange": "peril_dlx",
+		},
+	)
+	if err != nil {
+		return nil, amqp.Queue{}, err
+	}
+
+	err = subCh.QueueBind(queueName, key, exchange, false, nil)
+	if err != nil {
+		return nil, amqp.Queue{}, err
+	}
+
+	return subCh, subQueue, nil
+
+}
+
 func SubscribeJSON[T any](
 	conn *amqp.Connection,
 	exchange,
@@ -68,6 +111,10 @@ func subscribe[T any](
 		return fmt.Errorf("could not bind queue to exchange: %w", err)
 	}
 
+	err = ch.Qos(10, 0, false)
+	if err != nil {
+		return fmt.Errorf("could not set prefetch size: %w", err)
+	}
 	deliveryCh, err := ch.Consume(queueName, "", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("could not create channel: %w", err)
